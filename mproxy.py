@@ -4,10 +4,12 @@ import socket
 import ssl
 import sys
 import threading
+import subprocess
 
 # Globals
 log_dir = None
 request_num = 0
+openssl_path = r"C:\Program Files\Git\mingw64\bin\openssl.exe"
 
 
 def validate_port(port):
@@ -103,7 +105,29 @@ def sanitize_data(data, webserver):
 def https_proxy_server(port, conn, data, addr, webserver):
     conn.send(b'HTTP/1.1 200 OK\r\n\r\n')
     client_context = ssl.create_default_context(purpose=ssl.Purpose.CLIENT_AUTH)
-    client_context.load_cert_chain(certfile='cert.pem', keyfile='key.pem')
+
+    domain = webserver.decode("ASCII")
+    cert_file = "certs/" + domain + ".pem"
+
+    if not os.path.exists(cert_file):
+        ext_file = "certs/" + domain + ".ext"
+        with open(ext_file, "wt") as ext:
+            ext.write(f"subjectAltName = DNS:{domain}\n")
+            ext.write(f"authorityKeyIdentifier = keyid,issuer\n")
+            ext.write(f"basicConstraints = CA:FALSE\n")
+            ext.write(f"keyUsage = digitalSignature, keyEncipherment\n")
+            ext.write(f"extendedKeyUsage=serverAuth\n")
+
+        cmd = f"x509 -req -CA root_ca/root-ca.crt -CAkey root_ca/root-ca.key -in root_ca/server.csr "\
+              f"-out {cert_file} -days 365 -CAcreateserial -extfile {ext_file}"
+        args = [openssl_path]
+        split = cmd.split(" ")
+        for c in split:
+            if c:
+                args.append(c)
+        subprocess.call(args)
+
+    client_context.load_cert_chain(cert_file)
     try:
         ssl_client_socket = client_context.wrap_socket(conn, server_side=True)
         ssl_res = ssl_client_socket.read(4096)
