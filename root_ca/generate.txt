@@ -1,0 +1,1 @@
+https://stackoverflow.com/questions/59738140/why-is-firefox-not-trusting-my-self-signed-certificate

@@ -127,7 +127,7 @@ def https_proxy_server(port, conn, data, addr, webserver):
                 args.append(c)
         subprocess.call(args)
 
-    client_context.load_cert_chain(cert_file)
+    client_context.load_cert_chain(cert_file, keyfile="root_ca/server.key")
     try:
         ssl_client_socket = client_context.wrap_socket(conn, server_side=True)
         ssl_res = ssl_client_socket.read(4096)
