@@ -10,6 +10,9 @@ import subprocess
 log_dir = None
 request_num = 0
 openssl_path = r"C:\Program Files\Git\mingw64\bin\openssl.exe"
+cert_gen_lock = threading.Lock()
+
+remove_encoding_headers = False  # sometimes problematic, e.g. TP-Link router login page
 
 
 def validate_port(port):
@@ -81,9 +84,10 @@ def sanitize_headers(data_arr):
         pass
 
     # Remove encoding
-    accept_enc_index = [idx for idx, s in enumerate(data_arr) if b'Accept-Encoding:' in s]
-    if accept_enc_index:
-        data_arr.pop(accept_enc_index[0])
+    if remove_encoding_headers:
+        accept_enc_index = [idx for idx, s in enumerate(data_arr) if b'Accept-Encoding:' in s]
+        if accept_enc_index:
+            data_arr.pop(accept_enc_index[0])
 
 
 def sanitize_data(data, webserver):
@@ -109,28 +113,31 @@ def https_proxy_server(port, conn, data, addr, webserver):
     domain = webserver.decode("ASCII")
     cert_file = "certs/" + domain + ".pem"
 
-    if not os.path.exists(cert_file):
-        ext_file = "certs/" + domain + ".ext"
-        with open(ext_file, "wt") as ext:
-            ext.write(f"subjectAltName = DNS:{domain}\n")
-            ext.write(f"authorityKeyIdentifier = keyid,issuer\n")
-            ext.write(f"basicConstraints = CA:FALSE\n")
-            ext.write(f"keyUsage = digitalSignature, keyEncipherment\n")
-            ext.write(f"extendedKeyUsage=serverAuth\n")
+    with cert_gen_lock:
+        if not os.path.exists(cert_file):
+            ext_file = "certs/" + domain + ".ext"
+            with open(ext_file, "wt") as ext:
+                ext.write(f"subjectAltName = DNS:{domain}\n")
+                ext.write(f"authorityKeyIdentifier = keyid,issuer\n")
+                ext.write(f"basicConstraints = CA:FALSE\n")
+                ext.write(f"keyUsage = digitalSignature, keyEncipherment\n")
+                ext.write(f"extendedKeyUsage=serverAuth\n")
 
-        cmd = f"x509 -req -CA root_ca/root-ca.crt -CAkey root_ca/root-ca.key -in root_ca/server.csr "\
-              f"-out {cert_file} -days 365 -CAcreateserial -extfile {ext_file}"
-        args = [openssl_path]
-        split = cmd.split(" ")
-        for c in split:
-            if c:
-                args.append(c)
-        subprocess.call(args)
+            cmd = f"x509 -req -CA root_ca/root-ca.crt -CAkey root_ca/root-ca.key -in root_ca/server.csr "\
+                  f"-out {cert_file} -days 365 -CAcreateserial -extfile {ext_file}"
+            args = [openssl_path]
+            split = cmd.split(" ")
+            for c in split:
+                if c:
+                    args.append(c)
+            subprocess.call(args)
 
     client_context.load_cert_chain(cert_file, keyfile="root_ca/server.key")
     try:
         ssl_client_socket = client_context.wrap_socket(conn, server_side=True)
         ssl_res = ssl_client_socket.read(4096)
+    except (ssl.SSLEOFError, ConnectionAbortedError, ConnectionResetError):
+        return
     except Exception as ex:
         if "SSLV3_ALERT_BAD_CERTIFICATE" in str(ex):
             return
@@ -146,12 +153,15 @@ def https_proxy_server(port, conn, data, addr, webserver):
 
         data = b"\n".join(lines)
         ssl_server_socket.send(data)
-        while 1:
-            reply = ssl_server_socket.recv(4096)
-            if reply:
-                ssl_client_socket.send(reply)
-            else:
-                break
+        try:
+            while 1:
+                reply = ssl_server_socket.recv(4096)
+                if reply:
+                    ssl_client_socket.send(reply)
+                else:
+                    break
+        except ssl.SSLEOFError:
+            pass
 
 
 def parse_req(conn, data, addr):
