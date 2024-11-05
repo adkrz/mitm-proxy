@@ -10,10 +10,12 @@ import subprocess
 log_dir = None
 request_num = 0
 openssl_path = r"C:\Program Files\Git\mingw64\bin\openssl.exe"
-cert_gen_lock = threading.Lock()
 
 remove_encoding_headers = True  # sometimes problematic, e.g. TP-Link router login page
 buffer_size=8162
+client_context_cache = {}
+client_context_cache_lock = threading.Lock()
+server_context = ssl.create_default_context()
 
 
 def validate_port(port):
@@ -106,33 +108,42 @@ def sanitize_data(data, webserver):
     return data
 
 
+def get_client_ssl_context(domain):
+    with client_context_cache_lock:
+        if domain in client_context_cache:
+            client_context = client_context_cache[domain]
+        else:
+            client_context = ssl.create_default_context(purpose=ssl.Purpose.CLIENT_AUTH)
+            client_context_cache[domain] = client_context
+            cert_file = "certs/" + domain + ".pem"
+
+            if not os.path.exists(cert_file):
+                ext_file = "certs/" + domain + ".ext"
+                with open(ext_file, "wt") as ext:
+                    ext.write(f"subjectAltName = DNS:{domain}\n")
+                    ext.write(f"authorityKeyIdentifier = keyid,issuer\n")
+                    ext.write(f"basicConstraints = CA:FALSE\n")
+                    ext.write(f"keyUsage = digitalSignature, keyEncipherment\n")
+                    ext.write(f"extendedKeyUsage=serverAuth\n")
+
+                cmd = f"x509 -req -CA root_ca/root-ca.crt -CAkey root_ca/root-ca.key -in root_ca/server.csr "\
+                      f"-out {cert_file} -days 365 -CAcreateserial -extfile {ext_file}"
+                args = [openssl_path]
+                split = cmd.split(" ")
+                for c in split:
+                    if c:
+                        args.append(c)
+                subprocess.call(args)
+            client_context.load_cert_chain(cert_file, keyfile="root_ca/server.key")
+    return client_context
+
+
 def https_proxy_server(port, conn, data, addr, webserver):
     conn.send(b'HTTP/1.1 200 OK\r\n\r\n')
-    client_context = ssl.create_default_context(purpose=ssl.Purpose.CLIENT_AUTH)
-
     domain = webserver.decode("ASCII")
-    cert_file = "certs/" + domain + ".pem"
 
-    with cert_gen_lock:
-        if not os.path.exists(cert_file):
-            ext_file = "certs/" + domain + ".ext"
-            with open(ext_file, "wt") as ext:
-                ext.write(f"subjectAltName = DNS:{domain}\n")
-                ext.write(f"authorityKeyIdentifier = keyid,issuer\n")
-                ext.write(f"basicConstraints = CA:FALSE\n")
-                ext.write(f"keyUsage = digitalSignature, keyEncipherment\n")
-                ext.write(f"extendedKeyUsage=serverAuth\n")
+    client_context = get_client_ssl_context(domain)
 
-            cmd = f"x509 -req -CA root_ca/root-ca.crt -CAkey root_ca/root-ca.key -in root_ca/server.csr "\
-                  f"-out {cert_file} -days 365 -CAcreateserial -extfile {ext_file}"
-            args = [openssl_path]
-            split = cmd.split(" ")
-            for c in split:
-                if c:
-                    args.append(c)
-            subprocess.call(args)
-
-    client_context.load_cert_chain(cert_file, keyfile="root_ca/server.key")
     try:
         ssl_client_socket = client_context.wrap_socket(conn, server_side=True)
         ssl_res = ssl_client_socket.read(buffer_size)
@@ -146,7 +157,6 @@ def https_proxy_server(port, conn, data, addr, webserver):
     lines = ssl_res.split(b"\n")
     sanitize_headers(lines)
 
-    server_context = ssl.create_default_context()
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server_socket:
         ssl_server_socket = server_context.wrap_socket(server_socket, server_hostname=webserver)
         ssl_server_socket.connect((webserver, int(port)))
