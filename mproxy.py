@@ -61,11 +61,6 @@ def proxy_server(webserver, port, conn, data, addr, filename):
                 break
 
 
-def is_ssl_req(data):
-    first_line = data.split(b'\n')[0]
-    return first_line.split(b' ')[0] == b'CONNECT'
-
-
 def replace_with_proper_url(url, webserver):
     if b"http://" in url:
         url = url[7:]
@@ -92,8 +87,7 @@ def sanitize_headers(data_arr):
             data_arr.pop(accept_enc_index[0])
 
 
-def sanitize_data(data, webserver):
-    data_arr = data.split(b'\n')
+def sanitize_data(data_arr, webserver):
 
     # Replace first line with route, not full domain
     first_line = data_arr[0].split(b" ")
@@ -138,7 +132,7 @@ def get_client_ssl_context(domain):
     return client_context
 
 
-def https_proxy_server(port, conn, data, addr, webserver):
+def https_proxy_server(port, conn, webserver):
     conn.send(b'HTTP/1.1 200 OK\r\n\r\n')
     domain = webserver.decode("ASCII")
 
@@ -149,19 +143,15 @@ def https_proxy_server(port, conn, data, addr, webserver):
         ssl_res = ssl_client_socket.read(buffer_size)
     except (ssl.SSLEOFError, ConnectionAbortedError, ConnectionResetError):
         return
-    except Exception as ex:
-        if "SSLV3_ALERT_BAD_CERTIFICATE" in str(ex):
-            return
-        else:
-            raise
+
     lines = ssl_res.split(b"\n")
     sanitize_headers(lines)
+    data = b"\n".join(lines)
 
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server_socket:
         ssl_server_socket = server_context.wrap_socket(server_socket, server_hostname=webserver)
         ssl_server_socket.connect((webserver, int(port)))
 
-        data = b"\n".join(lines)
         ssl_server_socket.send(data)
         try:
             while 1:
@@ -177,7 +167,8 @@ def https_proxy_server(port, conn, data, addr, webserver):
 def parse_req(conn, data, addr):
     # Client Browser requests
     with conn:
-        first_line = data.split(b'\n')[0]
+        data_arr = data.split(b'\n')
+        first_line = data_arr[0]
         if not first_line:
             return
         url = first_line.split(b' ')[1]
@@ -190,7 +181,7 @@ def parse_req(conn, data, addr):
         if webserver_pos == -1:
             webserver_pos = len(temp)
 
-        is_https_request = is_ssl_req(data)
+        is_https_request = first_line.startswith(b"CONNECT")
 
         if port_pos == -1 or webserver_pos < port_pos:
             port = 80
@@ -208,9 +199,9 @@ def parse_req(conn, data, addr):
             file_name = str(log_dir) + str(request_num) + '_' + addr_str + '_' + str(webserver)
 
         if is_https_request:
-            https_proxy_server(port, conn, data, addr, webserver)
+            https_proxy_server(port, conn, webserver)
         else:
-            data = sanitize_data(data, webserver)
+            data = sanitize_data(data_arr, webserver)
             try:
                 proxy_server(webserver, port, conn, data, addr, file_name)
             except (ConnectionResetError, ConnectionAbortedError):
