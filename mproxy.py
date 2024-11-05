@@ -12,7 +12,8 @@ request_num = 0
 openssl_path = r"C:\Program Files\Git\mingw64\bin\openssl.exe"
 cert_gen_lock = threading.Lock()
 
-remove_encoding_headers = False  # sometimes problematic, e.g. TP-Link router login page
+remove_encoding_headers = True  # sometimes problematic, e.g. TP-Link router login page
+buffer_size=8162
 
 
 def validate_port(port):
@@ -47,7 +48,6 @@ def parse_input_args():
 
 
 def proxy_server(webserver, port, conn, data, addr, filename):
-    buffer_size = 4096
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.connect((webserver, port))
         s.send(data)
@@ -85,7 +85,7 @@ def sanitize_headers(data_arr):
 
     # Remove encoding
     if remove_encoding_headers:
-        accept_enc_index = [idx for idx, s in enumerate(data_arr) if b'Accept-Encoding:' in s]
+        accept_enc_index = [idx for idx, s in enumerate(data_arr) if s.startswith(b"Accept-Encoding:")]
         if accept_enc_index:
             data_arr.pop(accept_enc_index[0])
 
@@ -135,7 +135,7 @@ def https_proxy_server(port, conn, data, addr, webserver):
     client_context.load_cert_chain(cert_file, keyfile="root_ca/server.key")
     try:
         ssl_client_socket = client_context.wrap_socket(conn, server_side=True)
-        ssl_res = ssl_client_socket.read(4096)
+        ssl_res = ssl_client_socket.read(buffer_size)
     except (ssl.SSLEOFError, ConnectionAbortedError, ConnectionResetError):
         return
     except Exception as ex:
@@ -155,7 +155,7 @@ def https_proxy_server(port, conn, data, addr, webserver):
         ssl_server_socket.send(data)
         try:
             while 1:
-                reply = ssl_server_socket.recv(4096)
+                reply = ssl_server_socket.recv(buffer_size)
                 if reply:
                     ssl_client_socket.send(reply)
                 else:
@@ -209,12 +209,10 @@ def parse_req(conn, data, addr):
 
 def accept_conn(s):
     global request_num
-    buffer_size = 4096
     while True:
         try:
             conn, addr = s.accept()
             data = conn.recv(buffer_size)
-            print(data)
             request_num += 1
             threading.Thread(target=parse_req, args=(conn, data, addr)).start()
         except:
