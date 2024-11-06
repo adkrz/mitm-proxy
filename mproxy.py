@@ -162,9 +162,6 @@ def https_proxy_server(port, conn, webserver):
     sanitize_headers(lines)
     data = b"\n".join(lines)
 
-    if data.startswith(b"POST ") and b"/recommend" in data:
-        a = 1
-
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server_socket:
         ssl_server_socket = server_context.wrap_socket(server_socket, server_hostname=webserver)
         ssl_server_socket.connect((webserver, int(port)))
