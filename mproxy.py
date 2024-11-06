@@ -72,25 +72,32 @@ def replace_with_proper_url(url, webserver):
 
 
 def sanitize_headers(data_arr):
-    # Remove keep alive connection, replace with close connection
-    try:
-        conn_keep_alive_ind = data_arr.index(b"Connection: keep-alive\r")
-        if conn_keep_alive_ind != -1:
-            data_arr[conn_keep_alive_ind] = b"Connection: close\r"
-    except ValueError:
-        pass
-    try:
-        conn_keep_alive_ind = data_arr.index(b"Connection: Keep-Alive\r")
-        if conn_keep_alive_ind != -1:
-            data_arr[conn_keep_alive_ind] = b"Connection: close\r"
-    except ValueError:
-        pass
+    # remove encoding like gzip
+    # change keep-alive to close connection
+    # fix content-length if something is modified
+
+    content_length_index = -1
+    accept_encoding_index = -1
+    inside_content = False
+    for i in range(len(data_arr)):
+        line = data_arr[i]
+        if inside_content and content_length_index > -1:
+            data_arr[content_length_index] = b"Content-Length: " + str(len(line)).encode("ASCII")
+        else:
+            if line == b"\r":
+                inside_content = True
+            else:
+                ll = line.lower()
+                if ll == b"connection: keep-alive\r":
+                    data_arr[i] = b"Connection: close\r"
+                elif ll.startswith(b"content-length: "):
+                    content_length_index = i
+                elif ll.startswith(b"accept-encoding: "):
+                    accept_encoding_index = i
 
     # Remove encoding
-    if remove_encoding_headers:
-        accept_enc_index = [idx for idx, s in enumerate(data_arr) if s.startswith(b"Accept-Encoding:")]
-        if accept_enc_index:
-            data_arr.pop(accept_enc_index[0])
+    if remove_encoding_headers and accept_encoding_index > -1:
+        data_arr.pop(accept_encoding_index)
 
 
 def sanitize_data(data_arr, webserver):
@@ -154,10 +161,12 @@ def https_proxy_server(port, conn, webserver):
     sanitize_headers(lines)
     data = b"\n".join(lines)
 
+    if data.startswith(b"POST ") and b"/recommend" in data:
+        a = 1
+
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server_socket:
         ssl_server_socket = server_context.wrap_socket(server_socket, server_hostname=webserver)
         ssl_server_socket.connect((webserver, int(port)))
-
         ssl_server_socket.send(data)
         try:
             while 1:
