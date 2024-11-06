@@ -79,6 +79,12 @@ def sanitize_headers(data_arr):
             data_arr[conn_keep_alive_ind] = b"Connection: close\r"
     except ValueError:
         pass
+    try:
+        conn_keep_alive_ind = data_arr.index(b"Connection: Keep-Alive\r")
+        if conn_keep_alive_ind != -1:
+            data_arr[conn_keep_alive_ind] = b"Connection: close\r"
+    except ValueError:
+        pass
 
     # Remove encoding
     if remove_encoding_headers:
