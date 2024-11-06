@@ -5,6 +5,7 @@ import ssl
 import sys
 import threading
 import subprocess
+import select
 
 # Globals
 log_dir = None
@@ -176,6 +177,26 @@ def https_proxy_server(port, conn, webserver):
                 else:
                     break
         except ssl.SSLEOFError:
+            pass
+
+
+def https_proxy_server_non_mitm(port, client_socket, webserver):
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server_socket:
+        server_socket.connect((webserver, port))
+        client_socket.send(b'HTTP/1.1 200 OK\r\n\r\n')
+        conns = [client_socket, server_socket]
+        try:
+            while 1:
+                rlist, wlist, xlist = select.select(conns, [], conns, 2000)
+                if xlist or not rlist:
+                    break
+                for r in rlist:
+                    other = conns[1] if r is conns[0] else conns[0]
+                    data = r.recv(8192)
+                    if not data:
+                        break
+                    other.sendall(data)
+        except (ConnectionAbortedError, ConnectionResetError):
             pass
 
 
