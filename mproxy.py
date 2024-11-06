@@ -80,10 +80,11 @@ def sanitize_headers(data_arr):
     content_length_index = -1
     accept_encoding_index = -1
     inside_content = False
+    content_length = 0
     for i in range(len(data_arr)):
         line = data_arr[i]
-        if inside_content and content_length_index > -1:
-            data_arr[content_length_index] = b"Content-Length: " + str(len(line)).encode("ASCII")
+        if inside_content:
+            content_length += len(line) + 1  # plus \n
         else:
             if line == b"\r":
                 inside_content = True
@@ -95,6 +96,11 @@ def sanitize_headers(data_arr):
                     content_length_index = i
                 elif ll.startswith(b"accept-encoding: "):
                     accept_encoding_index = i
+
+    if content_length_index != -1:
+        content_length -= 1  # last \n
+        new = b"Content-Length: " + str(content_length).encode("ASCII") + b"\r"
+        data_arr[content_length_index] = new
 
     # Remove encoding
     if remove_encoding_headers and accept_encoding_index > -1:
