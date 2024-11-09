@@ -13,7 +13,7 @@ request_num = 0
 openssl_path = r"C:\Program Files\Git\mingw64\bin\openssl.exe"
 
 remove_encoding_headers = True  # sometimes problematic, e.g. TP-Link router login page
-buffer_size=8162
+buffer_size=8192
 client_context_cache = {}
 client_context_cache_lock = threading.Lock()
 server_context = ssl.create_default_context()
@@ -195,12 +195,12 @@ def https_proxy_server_non_mitm(port, client_socket, webserver):
                     break
                 for r in rlist:
                     other = conns[1] if r is conns[0] else conns[0]
-                    data = r.recv(8192)
+                    data = r.recv(buffer_size)
                     if not data:
                         break
                     other.sendall(data)
         except (ConnectionAbortedError, ConnectionResetError):
-            pass
+            client_socket.close()
 
 
 def parse_req(conn, data, addr):
