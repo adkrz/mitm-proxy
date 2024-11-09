@@ -161,7 +161,7 @@ def https_proxy_server(port, conn, webserver):
     try:
         ssl_client_socket = client_context.wrap_socket(conn, server_side=True)
         ssl_res = ssl_client_socket.read(buffer_size)
-    except (ssl.SSLEOFError, ConnectionAbortedError, ConnectionResetError):
+    except (ssl.SSLEOFError, ssl.SSLZeroReturnError, ConnectionAbortedError, ConnectionResetError):
         return
 
     lines = ssl_res.split(b"\n")
