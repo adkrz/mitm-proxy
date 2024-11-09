@@ -72,7 +72,7 @@ def replace_with_proper_url(url, webserver):
     return url
 
 
-def sanitize_headers(data_arr):
+def sanitize_headers(data_arr, fix_content_length=False):
     # remove encoding like gzip
     # change keep-alive to close connection
     # fix content-length if something is modified
@@ -97,7 +97,7 @@ def sanitize_headers(data_arr):
                 elif ll.startswith(b"accept-encoding: "):
                     accept_encoding_index = i
 
-    if content_length_index != -1:
+    if fix_content_length and content_length_index != -1:
         content_length -= 1  # last \n
         new = b"Content-Length: " + str(content_length).encode("ASCII") + b"\r"
         data_arr[content_length_index] = new
@@ -169,8 +169,8 @@ def https_proxy_server(port, conn, webserver):
     data = b"\n".join(lines)
 
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server_socket:
-        ssl_server_socket = server_context.wrap_socket(server_socket, server_hostname=webserver)
         try:
+            ssl_server_socket = server_context.wrap_socket(server_socket, server_hostname=webserver)
             ssl_server_socket.connect((webserver, int(port)))
         except (ssl.SSLCertVerificationError, ssl.SSLEOFError):
             ssl_client_socket.close()  # sth wrong with target server
