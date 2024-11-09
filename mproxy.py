@@ -170,17 +170,28 @@ def https_proxy_server(port, conn, webserver):
 
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server_socket:
         ssl_server_socket = server_context.wrap_socket(server_socket, server_hostname=webserver)
-        ssl_server_socket.connect((webserver, int(port)))
+        try:
+            ssl_server_socket.connect((webserver, int(port)))
+        except (ssl.SSLCertVerificationError, ssl.SSLEOFError):
+            ssl_client_socket.close()  # sth wrong with target server
+            return
         ssl_server_socket.send(data)
+
+        conns = [ssl_client_socket, ssl_server_socket]
         try:
             while 1:
-                reply = ssl_server_socket.recv(buffer_size)
-                if reply:
-                    ssl_client_socket.send(reply)
-                else:
+                rlist, wlist, xlist = select.select(conns, [], conns, 2000)
+                if xlist or not rlist:
                     break
-        except ssl.SSLEOFError:
+                for r in rlist:
+                    other = conns[1] if r is conns[0] else conns[0]
+                    data = r.recv(buffer_size)
+                    if not data:
+                        break
+                    other.sendall(data)
+        except (ConnectionAbortedError, ConnectionResetError, ssl.SSLEOFError):
             pass
+    ssl_client_socket.close()
 
 
 def https_proxy_server_non_mitm(port, client_socket, webserver):
