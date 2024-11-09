@@ -178,8 +178,9 @@ def https_proxy_server(port, conn, webserver):
         ssl_server_socket.send(data)
 
         conns = [ssl_client_socket, ssl_server_socket]
+        connected = True
         try:
-            while 1:
+            while connected:
                 rlist, wlist, xlist = select.select(conns, [], conns, 2000)
                 if xlist or not rlist:
                     break
@@ -187,6 +188,7 @@ def https_proxy_server(port, conn, webserver):
                     other = conns[1] if r is conns[0] else conns[0]
                     data = r.recv(buffer_size)
                     if not data:
+                        connected = False
                         break
                     other.sendall(data)
         except (ConnectionAbortedError, ConnectionResetError, ssl.SSLEOFError):
